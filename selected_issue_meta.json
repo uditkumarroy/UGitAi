@@ -1,4 +1,4 @@
 {
   "no_issue": true,
-  "reason": "selector_failed: Hardcoded service account is not configured: private_key still contains placeholder text."
+  "reason": "selector_failed: HTTPSConnectionPool(host='oauth2.googleapis.com', port=443): Max retries exceeded with url: /token (Caused by NameResolutionError(\"<urllib3.connection.HTTPSConnection object at 0x102ba30b0>: Failed to resolve 'oauth2.googleapis.com' ([Errno 8] nodename nor servname provided, or not known)\"))"
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from pathlib import Path
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -12,21 +13,7 @@ from typing import Any
 import google.auth.transport.requests
 from google.oauth2 import service_account
 
-# Hardcode Google service account values here.
-# Replace every REPLACE_* value with real credentials.
-HARDCODED_SERVICE_ACCOUNT: dict[str, str] = {
-    "type": "service_account",
-    "project_id": "test-firebase-b96cd",
-    "private_key_id": "REPLACE_PRIVATE_KEY_ID",
-    "private_key": "-----BEGIN PRIVATE KEY-----\\nREPLACE_PRIVATE_KEY\\n-----END PRIVATE KEY-----\\n",
-    "client_email": "REPLACE_SERVICE_ACCOUNT_EMAIL@test-firebase-b96cd.iam.gserviceaccount.com",
-    "client_id": "REPLACE_CLIENT_ID",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": "REPLACE_CLIENT_X509_CERT_URL",
-    "universe_domain": "googleapis.com",
-}
+SERVICE_ACCOUNT_FILE = Path("test-firebase-b96cd-b8dc04633d52.json")
 
 
 def parse_rfc3339(value: str | None) -> dt.datetime | None:
@@ -40,15 +27,13 @@ def parse_rfc3339(value: str | None) -> dt.datetime | None:
         return None
 
 
-def _assert_not_placeholder(key: str, value: str) -> None:
-    upper = value.upper()
-    if "REPLACE_" in upper or "YOUR_" in upper:
-        raise RuntimeError(
-            f"Hardcoded service account is not configured: {key} still contains placeholder text."
-        )
-
-
 def get_service_account_info() -> dict[str, str]:
+    if not SERVICE_ACCOUNT_FILE.exists():
+        raise RuntimeError(f"Missing service account file: {SERVICE_ACCOUNT_FILE}")
+
+    with open(SERVICE_ACCOUNT_FILE) as f:
+        payload: dict[str, str] = json.load(f)
+
     required = [
         "type",
         "project_id",
@@ -57,28 +42,27 @@ def get_service_account_info() -> dict[str, str]:
         "token_uri",
     ]
     for key in required:
-        value = str(HARDCODED_SERVICE_ACCOUNT.get(key, "")).strip()
+        value = str(payload.get(key, "")).strip()
         if not value:
-            raise RuntimeError(f"Hardcoded service account is missing key: {key}")
-        _assert_not_placeholder(key, value)
+            raise RuntimeError(f"Service account JSON is missing key: {key}")
 
     # Keep optional fields present for completeness, but don't block auth on them.
     for optional in ("private_key_id", "client_id"):
-        value = str(HARDCODED_SERVICE_ACCOUNT.get(optional, "")).strip()
+        value = str(payload.get(optional, "")).strip()
         if not value:
-            HARDCODED_SERVICE_ACCOUNT[optional] = "unused"
+            payload[optional] = "unused"
 
-    private_key = HARDCODED_SERVICE_ACCOUNT["private_key"]
+    private_key = payload["private_key"]
     # Support both escaped and literal newlines.
     if "\\n" in private_key and "\n" not in private_key:
         private_key = private_key.replace("\\n", "\n")
 
     if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
-        raise RuntimeError("Hardcoded private_key must start with '-----BEGIN PRIVATE KEY-----'.")
+        raise RuntimeError("Service account private_key must start with '-----BEGIN PRIVATE KEY-----'.")
     if "-----END PRIVATE KEY-----" not in private_key:
-        raise RuntimeError("Hardcoded private_key must include '-----END PRIVATE KEY-----'.")
+        raise RuntimeError("Service account private_key must include '-----END PRIVATE KEY-----'.")
 
-    normalized = dict(HARDCODED_SERVICE_ACCOUNT)
+    normalized = dict(payload)
     normalized["private_key"] = private_key
     return normalized
 
