@@ -5,38 +5,12 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from pathlib import Path
 import urllib.parse
 import urllib.request
 from typing import Any
 
 import google.auth
 import google.auth.transport.requests
-from google.oauth2 import service_account
-
-SERVICE_ACCOUNT_PATTERNS = (
-    "ugitai-*.json",
-    "test-firebase-b96cd-*.json",
-)
-
-
-def _resolve_service_account_file() -> Path:
-    explicit = Path(".github/service-account-file.txt")
-    if explicit.exists():
-        target = Path(explicit.read_text().strip())
-        if target.exists():
-            return target
-
-    candidates: list[Path] = []
-    for pattern in SERVICE_ACCOUNT_PATTERNS:
-        candidates.extend(Path(".").glob(pattern))
-    candidates = sorted(set(candidates), key=lambda p: p.stat().st_mtime, reverse=True)
-    if not candidates:
-        raise RuntimeError(
-            "Missing service account file. Expected one of: "
-            + ", ".join(SERVICE_ACCOUNT_PATTERNS)
-        )
-    return candidates[0]
 
 
 def parse_rfc3339(value: str | None) -> dt.datetime | None:
@@ -50,69 +24,19 @@ def parse_rfc3339(value: str | None) -> dt.datetime | None:
         return None
 
 
-def get_service_account_info() -> dict[str, str]:
-    service_account_file = _resolve_service_account_file()
-
-    with open(service_account_file) as f:
-        payload: dict[str, str] = json.load(f)
-
-    required = [
-        "type",
-        "project_id",
-        "private_key",
-        "client_email",
-        "token_uri",
-    ]
-    for key in required:
-        value = str(payload.get(key, "")).strip()
-        if not value:
-            raise RuntimeError(f"Service account JSON is missing key: {key}")
-
-    # Keep optional fields present for completeness, but don't block auth on them.
-    for optional in ("private_key_id", "client_id"):
-        value = str(payload.get(optional, "")).strip()
-        if not value:
-            payload[optional] = "unused"
-
-    private_key = payload["private_key"]
-    # Support both escaped and literal newlines.
-    if "\\n" in private_key and "\n" not in private_key:
-        private_key = private_key.replace("\\n", "\n")
-
-    if not private_key.startswith("-----BEGIN PRIVATE KEY-----"):
-        raise RuntimeError("Service account private_key must start with '-----BEGIN PRIVATE KEY-----'.")
-    if "-----END PRIVATE KEY-----" not in private_key:
-        raise RuntimeError("Service account private_key must include '-----END PRIVATE KEY-----'.")
-
-    normalized = dict(payload)
-    normalized["private_key"] = private_key
-    return normalized
-
-
 def get_access_token() -> str:
-    adc_error: Exception | None = None
-    # Preferred in GitHub Actions: keyless auth via Workload Identity Federation.
     try:
         creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         creds.refresh(google.auth.transport.requests.Request())
         if creds.token:
             return creds.token
     except Exception as exc:
-        adc_error = exc
-
-    try:
-        creds = service_account.Credentials.from_service_account_info(
-            get_service_account_info(),
-            scopes=["https://www.googleapis.com/auth/cloud-platform"],
-        )
-        creds.refresh(google.auth.transport.requests.Request())
-        return creds.token
-    except Exception as file_error:
-        if adc_error is not None:
-            raise RuntimeError(
-                f"Google auth failed via ADC ({adc_error}) and service-account file ({file_error})."
-            ) from file_error
-        raise
+        raise RuntimeError(
+            "Google ADC auth failed. Configure GitHub OIDC using "
+            "google-github-actions/auth and repo vars "
+            "GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_SERVICE_ACCOUNT_EMAIL."
+        ) from exc
+    raise RuntimeError("Google ADC auth returned no token.")
 
 
 def load_project_and_app_id(package_name: str = "com.ugitai") -> tuple[str, str]:
