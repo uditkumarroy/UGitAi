@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "828607499629",
+    "project_id": "test-firebase-b96cd",
+    "storage_bucket": "test-firebase-b96cd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:828607499629:android:c856cdf41b3107392bde64",
+        "android_client_info": {
+          "package_name": "com.example.gitfireai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCccmHpERG0lO_xnkCSphFQoZrqelsdbpQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:828607499629:android:ed06a7dbf5d4ce662bde64",
+        "android_client_info": {
+          "package_name": "com.ugitai"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCccmHpERG0lO_xnkCSphFQoZrqelsdbpQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
