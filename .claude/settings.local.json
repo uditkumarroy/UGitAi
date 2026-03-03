@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew :app:compileDebugKotlin 2>&1 | tail -30)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nAdd Firebase connection test to MainActivity\n\nInitializes Firebase via Crashlytics SDK, logs a test message and\ncustom key, and displays connection status \\(project name or error\\) on screen.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(git add .github/ && git status)",
+      "Bash(git commit -m \"$\\(cat <<'EOF'\nAdd Firebase crash auto-fix GitHub Actions pipeline\n\nWorkflow detects a Firebase Crashlytics crash \\(via workflow_dispatch or\nrepository_dispatch webhook\\), creates a fix branch, uses Claude to analyze\nthe stacktrace and apply a code fix, verifies the build compiles, commits,\nand opens a PR back to the base branch.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(gh auth status 2>&1)"
+    ]
+  }
+}
