@@ -62,6 +62,14 @@ def get_access_token() -> str:
 
 
 def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[str, list[str]]:
+    override_project = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    override_app_resources = os.getenv("CRASHLYTICS_APP_RESOURCE", "").strip()
+    if override_project and override_app_resources:
+        candidates = [x.strip() for x in override_app_resources.split(",") if x.strip()]
+        if not candidates:
+            raise RuntimeError("CRASHLYTICS_APP_RESOURCE override is empty after parsing.")
+        return override_project, candidates
+
     with open("app/google-services.json") as f:
         gs = json.load(f)
 
