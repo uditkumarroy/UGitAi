@@ -6,7 +6,8 @@
       "Bash(git push)",
       "Bash(git add .github/ && git status)",
       "Bash(git commit -m \"$\\(cat <<'EOF'\nAdd Firebase crash auto-fix GitHub Actions pipeline\n\nWorkflow detects a Firebase Crashlytics crash \\(via workflow_dispatch or\nrepository_dispatch webhook\\), creates a fix branch, uses Claude to analyze\nthe stacktrace and apply a code fix, verifies the build compiles, commits,\nand opens a PR back to the base branch.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(gh auth status 2>&1)"
+      "Bash(gh auth status 2>&1)",
+      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\)\" && echo \"YAML valid\")"
     ]
   }
 }
