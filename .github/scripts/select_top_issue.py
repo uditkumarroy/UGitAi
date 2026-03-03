@@ -7,6 +7,7 @@ import datetime as dt
 import json
 import os
 import sys
+import urllib.error
 from typing import Any
 
 from firebase_common import (
@@ -55,7 +56,23 @@ def main() -> None:
         if page_token:
             params["pageToken"] = page_token
 
-        response = api_get(base_url, "/issues", token, params=params)
+        try:
+            response = api_get(base_url, "/issues", token, params=params)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                meta = {
+                    "no_issue": True,
+                    "reason": "Crashlytics issues endpoint returned 404 (app/project not found or no data yet)",
+                    "project_id": project_id,
+                    "app_id": app_id,
+                    "window_start": start.isoformat(),
+                    "window_end": end.isoformat(),
+                }
+                _write_side_files("", meta)
+                _append_output("no_issue", "true")
+                print("Crashlytics endpoint returned 404. Skipping run as no issue candidate.")
+                return
+            raise
         batch = response.get("issues", [])
         if not isinstance(batch, list):
             break
