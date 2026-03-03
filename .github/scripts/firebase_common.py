@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 import urllib.parse
 import urllib.request
 from typing import Any
 
+import google.auth
 import google.auth.transport.requests
 from google.oauth2 import service_account
 
@@ -78,6 +80,21 @@ def get_service_account_info() -> dict[str, str]:
 
 
 def get_access_token() -> str:
+    # Preferred in GitHub Actions: keyless auth via Workload Identity Federation.
+    try:
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        creds.refresh(google.auth.transport.requests.Request())
+        if creds.token:
+            return creds.token
+    except Exception as adc_error:
+        # If ADC is unavailable, fall back to local JSON key file for local-only runs.
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            raise RuntimeError(
+                "Google ADC auth failed in GitHub Actions. Configure "
+                "google-github-actions/auth with workload identity provider and service account. "
+                f"Original error: {adc_error}"
+            ) from adc_error
+
     creds = service_account.Credentials.from_service_account_info(
         get_service_account_info(),
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
