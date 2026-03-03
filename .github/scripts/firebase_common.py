@@ -13,7 +13,18 @@ from typing import Any
 import google.auth.transport.requests
 from google.oauth2 import service_account
 
-SERVICE_ACCOUNT_FILE = Path("test-firebase-b96cd-b8dc04633d52.json")
+SERVICE_ACCOUNT_GLOB = "test-firebase-b96cd-*.json"
+
+
+def _resolve_service_account_file() -> Path:
+    candidates = sorted(
+        Path(".").glob(SERVICE_ACCOUNT_GLOB),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        raise RuntimeError(f"Missing service account file matching: {SERVICE_ACCOUNT_GLOB}")
+    return candidates[0]
 
 
 def parse_rfc3339(value: str | None) -> dt.datetime | None:
@@ -28,10 +39,9 @@ def parse_rfc3339(value: str | None) -> dt.datetime | None:
 
 
 def get_service_account_info() -> dict[str, str]:
-    if not SERVICE_ACCOUNT_FILE.exists():
-        raise RuntimeError(f"Missing service account file: {SERVICE_ACCOUNT_FILE}")
+    service_account_file = _resolve_service_account_file()
 
-    with open(SERVICE_ACCOUNT_FILE) as f:
+    with open(service_account_file) as f:
         payload: dict[str, str] = json.load(f)
 
     required = [
