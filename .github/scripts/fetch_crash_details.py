@@ -7,7 +7,12 @@ import json
 import os
 import sys
 
-from firebase_common import api_get, get_access_token, load_project_and_app_id
+from firebase_common import (
+    api_get,
+    get_access_token,
+    load_project_and_app_candidates,
+    resolve_crashlytics_base_url,
+)
 
 
 def format_stacktrace(events: list[dict]) -> str:
@@ -35,12 +40,11 @@ def main() -> None:
         raise RuntimeError("Missing CRASH_ISSUE_ID.")
 
     package_name = os.getenv("APP_PACKAGE_NAME", "com.ugitai")
-    project_id, app_id = load_project_and_app_id(package_name)
-    base_url = f"https://firebasecrashlytics.googleapis.com/v1beta1/projects/{project_id}/apps/{app_id}"
-
+    project_id, app_candidates = load_project_and_app_candidates(package_name)
     token = get_access_token()
+    base_url, resolved_app = resolve_crashlytics_base_url(project_id, app_candidates, token)
 
-    print(f"Fetching crash details: project={project_id} issue={issue_id}")
+    print(f"Fetching crash details: project={project_id} app={resolved_app} issue={issue_id}")
 
     issue = api_get(base_url, f"/issues/{issue_id}", token)
     title = issue.get("title", "Unknown crash")

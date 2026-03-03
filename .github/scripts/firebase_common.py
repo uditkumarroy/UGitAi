@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -60,17 +61,56 @@ def get_access_token() -> str:
     raise RuntimeError("Google ADC auth returned no token.")
 
 
-def load_project_and_app_id(package_name: str = "com.ugitai") -> tuple[str, str]:
+def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[str, list[str]]:
     with open("app/google-services.json") as f:
         gs = json.load(f)
 
     project_id = gs["project_info"]["project_id"]
-    app_id = next(
+    mobilesdk_app_id = next(
         c["client_info"]["mobilesdk_app_id"]
         for c in gs["client"]
         if c["client_info"]["android_client_info"]["package_name"] == package_name
     )
-    return project_id, app_id
+    candidates = [f"android:{package_name}", mobilesdk_app_id]
+    # Preserve order while deduplicating.
+    seen = set()
+    ordered = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            ordered.append(c)
+    return project_id, ordered
+
+
+def build_crashlytics_base_url(project_id: str, app_resource: str) -> str:
+    app_part = urllib.parse.quote(app_resource, safe=":")
+    return f"https://firebasecrashlytics.googleapis.com/v1beta1/projects/{project_id}/apps/{app_part}"
+
+
+def resolve_crashlytics_base_url(
+    project_id: str,
+    app_candidates: list[str],
+    token: str,
+) -> tuple[str, str]:
+    last_error: Exception | None = None
+    for app_resource in app_candidates:
+        base_url = build_crashlytics_base_url(project_id, app_resource)
+        try:
+            api_get(base_url, "/issues", token, params={"pageSize": "1"})
+            return base_url, app_resource
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code in (400, 404):
+                continue
+            raise
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    detail = f" Last error: {last_error}" if last_error else ""
+    raise RuntimeError(
+        f"Could not resolve Crashlytics app resource for project '{project_id}' from candidates {app_candidates}.{detail}"
+    )
 
 
 def api_get(base_url: str, path: str, token: str, params: dict[str, str] | None = None) -> dict[str, Any]:

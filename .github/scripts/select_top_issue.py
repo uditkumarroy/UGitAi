@@ -7,7 +7,6 @@ import datetime as dt
 import json
 import os
 import sys
-import urllib.error
 from typing import Any
 
 from firebase_common import (
@@ -16,8 +15,9 @@ from firebase_common import (
     extract_issue_id,
     extract_priority,
     get_access_token,
-    load_project_and_app_id,
+    load_project_and_app_candidates,
     parse_rfc3339,
+    resolve_crashlytics_base_url,
 )
 
 
@@ -38,14 +38,29 @@ def _write_side_files(issue_id: str, meta: dict[str, Any]) -> None:
 
 def main() -> None:
     package_name = os.getenv("APP_PACKAGE_NAME", "com.ugitai")
-    project_id, app_id = load_project_and_app_id(package_name)
-    base_url = f"https://firebasecrashlytics.googleapis.com/v1beta1/projects/{project_id}/apps/{app_id}"
+    project_id, app_candidates = load_project_and_app_candidates(package_name)
 
     end = parse_rfc3339(os.getenv("WINDOW_END_ISO")) or dt.datetime.now(dt.timezone.utc)
     start = parse_rfc3339(os.getenv("WINDOW_START_ISO")) or (end - dt.timedelta(hours=24))
     max_issues = int(os.getenv("MAX_ISSUES", "100"))
 
     token = get_access_token()
+    try:
+        base_url, resolved_app = resolve_crashlytics_base_url(project_id, app_candidates, token)
+        print(f"Using Crashlytics app resource: {resolved_app}")
+    except Exception as exc:
+        meta = {
+            "no_issue": True,
+            "reason": f"Could not resolve Crashlytics app: {exc}",
+            "project_id": project_id,
+            "app_candidates": app_candidates,
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
+        }
+        _write_side_files("", meta)
+        _append_output("no_issue", "true")
+        print(f"Could not resolve Crashlytics app. Skipping run. Details: {exc}")
+        return
 
     print(f"Selecting issue between {start.isoformat()} and {end.isoformat()}")
 
@@ -56,23 +71,7 @@ def main() -> None:
         if page_token:
             params["pageToken"] = page_token
 
-        try:
-            response = api_get(base_url, "/issues", token, params=params)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                meta = {
-                    "no_issue": True,
-                    "reason": "Crashlytics issues endpoint returned 404 (app/project not found or no data yet)",
-                    "project_id": project_id,
-                    "app_id": app_id,
-                    "window_start": start.isoformat(),
-                    "window_end": end.isoformat(),
-                }
-                _write_side_files("", meta)
-                _append_output("no_issue", "true")
-                print("Crashlytics endpoint returned 404. Skipping run as no issue candidate.")
-                return
-            raise
+        response = api_get(base_url, "/issues", token, params=params)
         batch = response.get("issues", [])
         if not isinstance(batch, list):
             break
