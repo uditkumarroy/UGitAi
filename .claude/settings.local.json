@@ -9,7 +9,8 @@
       "Bash(gh auth status 2>&1)",
       "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\)\" && echo \"YAML valid\")",
       "Bash(pip3 install pyyaml -q && python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\); print\\('YAML valid'\\)\")",
-      "Bash(git add .github/workflows/firebase-crash-autofix.yml && git commit -m \"fix: avoid YAML parse error in PR creation step\n\nReplace multiline --body string \\(which caused | to be parsed as YAML\nblock scalar\\) with writing pr_body.md and using --body-file instead.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\")"
+      "Bash(git add .github/workflows/firebase-crash-autofix.yml && git commit -m \"fix: avoid YAML parse error in PR creation step\n\nReplace multiline --body string \\(which caused | to be parsed as YAML\nblock scalar\\) with writing pr_body.md and using --body-file instead.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\")",
+      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\); print\\('YAML valid'\\)\")"
     ]
   }
 }
