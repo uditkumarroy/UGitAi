@@ -1,0 +1,4 @@
+{
+  "no_issue": true,
+  "reason": "selector_failed: Invalid .github/config/google-service-account.json: private_key is still a placeholder."
+}

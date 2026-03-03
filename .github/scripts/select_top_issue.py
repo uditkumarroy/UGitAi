@@ -32,6 +32,7 @@ from typing import Any
 
 import google.auth.transport.requests
 from google.oauth2 import service_account
+from service_account_loader import load_service_account_json
 
 
 def utc_now() -> dt.datetime:
@@ -63,13 +64,6 @@ def get_token(service_account_json: str) -> str:
     )
     creds.refresh(google.auth.transport.requests.Request())
     return creds.token
-
-
-def load_service_account_json() -> str:
-    config_path = ".github/config/google-service-account.json"
-    with open(config_path) as f:
-        payload = json.load(f)
-    return json.dumps(payload)
 
 
 def api_get(base_url: str, path: str, token: str, params: dict[str, str] | None = None) -> dict[str, Any]:

@@ -19,6 +19,7 @@ import urllib.request
 
 import google.auth.transport.requests
 from google.oauth2 import service_account
+from service_account_loader import load_service_account_json
 
 # ── Project constants (read from google-services.json) ────────────────────
 with open("app/google-services.json") as f:
@@ -40,13 +41,6 @@ BASE_URL = (
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────
-def load_service_account_json() -> str:
-    config_path = ".github/config/google-service-account.json"
-    with open(config_path) as f:
-        payload = json.load(f)
-    return json.dumps(payload)
-
-
 def get_token() -> str:
     sa_json = load_service_account_json()
     creds = service_account.Credentials.from_service_account_info(
