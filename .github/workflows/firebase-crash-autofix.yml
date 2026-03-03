@@ -1,11 +1,13 @@
 # Firebase Crash Auto-Fix Pipeline
 #
 # Triggers:
-#   1. Manual  (workflow_dispatch)  — enter only the Crashlytics Issue ID
-#   2. Webhook (repository_dispatch) — Firebase Alert relay sends only issue_id
+#   1. Scheduled auto-run (schedule) — auto-detects top issue from previous run -> now
+#   2. Manual          (workflow_dispatch)  — optional issue_id override
+#   3. Webhook         (repository_dispatch) — Firebase Alert relay sends only issue_id
 #
 # Everything else (title, stacktrace, base branch) is resolved automatically:
 #   • title + stacktrace  → fetched from Firebase Crashlytics REST API
+#   • top issue id        → auto-selected from previous run window when no issue_id provided
 #   • base branch         → always "main"
 #
 # Required secrets:
@@ -20,17 +22,21 @@
 name: Firebase Crash Auto-Fix
 
 on:
+  schedule:
+    - cron: "*/30 * * * *"
+
   workflow_dispatch:
     inputs:
       crash_issue_id:
         description: "Firebase Crashlytics Issue ID"
-        required: true
+        required: false
         type: string
 
   repository_dispatch:
     types: [firebase-crash-detected]
 
 permissions:
+  actions: read
   contents: write
   pull-requests: write
 
@@ -49,26 +55,39 @@ jobs:
           fetch-depth: 0
           ref: main
 
-      # ── 2. Resolve Issue ID ───────────────────────────────────────────────
-      - name: Resolve Issue ID
-        id: crash
-        run: |
-          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
-            ISSUE_ID="${{ github.event.client_payload.issue_id }}"
-          else
-            ISSUE_ID="${{ inputs.crash_issue_id }}"
-          fi
+      # ── 2. Determine previous-run window ──────────────────────────────────
+      - name: Determine window (last run → now)
+        id: window
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const workflowId = "firebase-crash-autofix.yml";
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowId,
+              per_page: 100,
+            });
 
-          echo "issue_id=$ISSUE_ID" >> "$GITHUB_OUTPUT"
+            const prev = runs
+              .filter((r) => r.id !== context.runId && r.status === "completed")
+              .sort((a, b) => {
+                const ta = new Date(a.updated_at || a.run_started_at || a.created_at).getTime();
+                const tb = new Date(b.updated_at || b.run_started_at || b.created_at).getTime();
+                return tb - ta;
+              })[0];
 
-          SAFE_ID=$(echo "$ISSUE_ID" | tr -dc 'a-zA-Z0-9-' | head -c 40)
-          echo "branch=fix/firebase-crash-${SAFE_ID}-$(date +%s)" >> "$GITHUB_OUTPUT"
+            const nowIso = new Date().toISOString();
+            const startIso = prev
+              ? (prev.updated_at || prev.run_started_at || prev.created_at)
+              : new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-      # ── 3. Create fix branch ──────────────────────────────────────────────
-      - name: Create fix branch
-        run: git checkout -b "${{ steps.crash.outputs.branch }}"
+            core.info(`Window start: ${startIso}`);
+            core.info(`Window end:   ${nowIso}`);
+            core.setOutput("start", startIso);
+            core.setOutput("end", nowIso);
 
-      # ── 4. Set up Python ──────────────────────────────────────────────────
+      # ── 3. Set up Python ──────────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -77,31 +96,67 @@ jobs:
       - name: Install dependencies
         run: pip install anthropic google-auth requests
 
-      # ── 5. Fetch crash details from Firebase Crashlytics ──────────────────
+      # ── 4. Resolve Issue ID (manual/webhook override OR auto-detect) ─────
+      - name: Resolve Issue ID
+        id: crash
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          WINDOW_START_ISO: ${{ steps.window.outputs.start }}
+          WINDOW_END_ISO: ${{ steps.window.outputs.end }}
+        run: |
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            ISSUE_ID="${{ github.event.client_payload.issue_id }}"
+          elif [ -n "${{ inputs.crash_issue_id }}" ]; then
+            ISSUE_ID="${{ inputs.crash_issue_id }}"
+          else
+            python .github/scripts/select_top_issue.py
+            ISSUE_ID="$(cat selected_issue_id.txt 2>/dev/null || true)"
+          fi
+
+          if [ -z "$ISSUE_ID" ]; then
+            echo "no_issue=true" >> "$GITHUB_OUTPUT"
+            echo "No Crashlytics issue found in detection window."
+            exit 0
+          fi
+
+          echo "issue_id=$ISSUE_ID" >> "$GITHUB_OUTPUT"
+          SAFE_ID=$(echo "$ISSUE_ID" | tr -dc 'a-zA-Z0-9-' | head -c 40)
+          echo "branch=fix/firebase-crash-${SAFE_ID}-$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # ── 5. Create fix branch ──────────────────────────────────────────────
+      - name: Create fix branch
+        if: steps.crash.outputs.no_issue != 'true'
+        run: git checkout -b "${{ steps.crash.outputs.branch }}"
+
+      # ── 6. Fetch crash details from Firebase Crashlytics ──────────────────
       - name: Fetch crash details from Firebase
+        if: steps.crash.outputs.no_issue != 'true'
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
         run: python .github/scripts/fetch_crash.py
 
-      # ── 6. Analyze crash and apply fix with Claude ────────────────────────
+      # ── 7. Analyze crash and apply fix with Claude ────────────────────────
       - name: Analyze and fix with Claude
+        if: steps.crash.outputs.no_issue != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
         run: python .github/scripts/fix_crash.py
 
-      # ── 7. Verify build compiles ──────────────────────────────────────────
+      # ── 8. Verify build compiles ──────────────────────────────────────────
       - name: Verify build
         id: build
+        if: steps.crash.outputs.no_issue != 'true'
         continue-on-error: true
         run: |
           chmod +x gradlew
           ./gradlew :app:compileDebugKotlin --no-daemon 2>&1 | tail -10
 
-      # ── 8. Commit ─────────────────────────────────────────────────────────
+      # ── 9. Commit ─────────────────────────────────────────────────────────
       - name: Commit fix
         id: commit
+        if: steps.crash.outputs.no_issue != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -119,14 +174,14 @@ jobs:
             git commit -m "$COMMIT_MSG"
           fi
 
-      # ── 9. Push branch ────────────────────────────────────────────────────
+      # ── 10. Push branch ───────────────────────────────────────────────────
       - name: Push branch
-        if: steps.commit.outputs.no_changes != 'true'
+        if: steps.crash.outputs.no_issue != 'true' && steps.commit.outputs.no_changes != 'true'
         run: git push origin "${{ steps.crash.outputs.branch }}"
 
-      # ── 10. Open Pull Request ─────────────────────────────────────────────
+      # ── 11. Open Pull Request ─────────────────────────────────────────────
       - name: Create Pull Request
-        if: steps.commit.outputs.no_changes != 'true'
+        if: steps.crash.outputs.no_issue != 'true' && steps.commit.outputs.no_changes != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
