@@ -52,10 +52,8 @@ def get_service_account_info() -> dict[str, str]:
     required = [
         "type",
         "project_id",
-        "private_key_id",
         "private_key",
         "client_email",
-        "client_id",
         "token_uri",
     ]
     for key in required:
@@ -63,6 +61,12 @@ def get_service_account_info() -> dict[str, str]:
         if not value:
             raise RuntimeError(f"Hardcoded service account is missing key: {key}")
         _assert_not_placeholder(key, value)
+
+    # Keep optional fields present for completeness, but don't block auth on them.
+    for optional in ("private_key_id", "client_id"):
+        value = str(HARDCODED_SERVICE_ACCOUNT.get(optional, "")).strip()
+        if not value:
+            HARDCODED_SERVICE_ACCOUNT[optional] = "unused"
 
     private_key = HARDCODED_SERVICE_ACCOUNT["private_key"]
     # Support both escaped and literal newlines.
