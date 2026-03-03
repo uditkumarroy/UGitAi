@@ -6,8 +6,10 @@ for a given issue ID, then writes them to:
   crash_stacktrace.txt  — formatted stacktrace from the most recent event
 
 Required env vars:
-  CRASH_ISSUE_ID              — Crashlytics issue ID
-  GOOGLE_SERVICE_ACCOUNT_JSON — GCP service account key JSON (string)
+  CRASH_ISSUE_ID — Crashlytics issue ID
+
+Hardcoded config file:
+  .github/config/google-service-account.json
 """
 
 import json
@@ -39,10 +41,10 @@ BASE_URL = (
 
 # ── Auth ───────────────────────────────────────────────────────────────────
 def load_service_account_json() -> str:
-    env_value = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if env_value:
-        return env_value
-    raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON.")
+    config_path = ".github/config/google-service-account.json"
+    with open(config_path) as f:
+        payload = json.load(f)
+    return json.dumps(payload)
 
 
 def get_token() -> str:
