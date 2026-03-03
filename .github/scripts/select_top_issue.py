@@ -8,13 +8,16 @@ Writes:
   selected_issue_meta.json - metadata about the selected issue (or no_issue marker)
 
 Required env vars:
-  GOOGLE_SERVICE_ACCOUNT_JSON
+  (none)
 
 Optional env vars:
   APP_PACKAGE_NAME  (default: com.ugitai)
   WINDOW_START_ISO  (default: 24 hours before now)
   WINDOW_END_ISO    (default: now)
   MAX_ISSUES        (default: 100)
+
+Hardcoded config file:
+  .github/config/google-service-account.json
 """
 
 from __future__ import annotations
@@ -63,10 +66,10 @@ def get_token(service_account_json: str) -> str:
 
 
 def load_service_account_json() -> str:
-    env_value = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if env_value:
-        return env_value
-    raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON.")
+    config_path = ".github/config/google-service-account.json"
+    with open(config_path) as f:
+        payload = json.load(f)
+    return json.dumps(payload)
 
 
 def api_get(base_url: str, path: str, token: str, params: dict[str, str] | None = None) -> dict[str, Any]:

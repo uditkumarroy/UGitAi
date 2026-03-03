@@ -12,7 +12,6 @@
 #
 # Required secrets:
 #   ANTHROPIC_API_KEY
-#   GOOGLE_SERVICE_ACCOUNT_JSON
 #   GITHUB_TOKEN                 — provided automatically by GitHub Actions
 #
 # Firebase webhook relay payload (repository_dispatch):
@@ -100,7 +99,6 @@ jobs:
       - name: Resolve Issue ID
         id: crash
         env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           WINDOW_START_ISO: ${{ steps.window.outputs.start }}
           WINDOW_END_ISO: ${{ steps.window.outputs.end }}
         run: |
@@ -132,7 +130,6 @@ jobs:
       - name: Fetch crash details from Firebase
         if: steps.crash.outputs.no_issue != 'true'
         env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
         run: python .github/scripts/fetch_crash.py
 
