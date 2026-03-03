@@ -133,12 +133,11 @@ jobs:
             echo "NO_CHANGES=true" >> "$GITHUB_ENV"
             echo "⚠️  Claude found no code changes to apply."
           else
-            git commit -m "fix: resolve Firebase crash ${{ steps.crash.outputs.issue_id }}
-
-${{ steps.crash.outputs.title }}
-
-Auto-analyzed and fixed by Claude AI.
-Firebase Issue ID: ${{ steps.crash.outputs.issue_id }}"
+            COMMIT_MSG=$(printf 'fix: resolve Firebase crash %s\n\n%s\n\nAuto-analyzed and fixed by Claude AI.\nFirebase Issue ID: %s' \
+              "${{ steps.crash.outputs.issue_id }}" \
+              "${{ steps.crash.outputs.title }}" \
+              "${{ steps.crash.outputs.issue_id }}")
+            git commit -m "$COMMIT_MSG"
           fi
 
       # ── 7. Push branch ────────────────────────────────────────────────────
