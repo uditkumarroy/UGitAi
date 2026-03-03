@@ -30,7 +30,6 @@ APP_ID = next(
 )
 
 ISSUE_ID = os.environ["CRASH_ISSUE_ID"]
-SA_JSON = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
 
 BASE_URL = (
     f"https://firebasecrashlytics.googleapis.com/v1beta1"
@@ -39,9 +38,17 @@ BASE_URL = (
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────
+def load_service_account_json() -> str:
+    env_value = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if env_value:
+        return env_value
+    raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON.")
+
+
 def get_token() -> str:
+    sa_json = load_service_account_json()
     creds = service_account.Credentials.from_service_account_info(
-        json.loads(SA_JSON),
+        json.loads(sa_json),
         scopes=["https://www.googleapis.com/auth/cloud-platform"],
     )
     creds.refresh(google.auth.transport.requests.Request())

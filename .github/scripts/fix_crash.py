@@ -3,6 +3,9 @@
 Reads a Firebase crash from the environment / crash_stacktrace.txt,
 uses Claude (with tool use) to locate the root cause in the codebase,
 applies the fix in-place, and writes fix_summary.md for the PR body.
+
+Required env vars:
+  ANTHROPIC_API_KEY
 """
 
 import os
@@ -74,6 +77,13 @@ def write_file(path: str, content: str) -> None:
         fh.write(content)
 
 
+def load_anthropic_api_key() -> str:
+    env_value = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if env_value:
+        return env_value
+    raise RuntimeError("Missing ANTHROPIC_API_KEY.")
+
+
 # ── Claude tools ───────────────────────────────────────────────────────────
 TOOLS = [
     {
@@ -133,7 +143,7 @@ TOOLS = [
 
 # ── Main ───────────────────────────────────────────────────────────────────
 def main() -> None:
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=load_anthropic_api_key())
 
     files = collect_source_files()
     print(f"📂 Loaded {len(files)} source file(s) for context.")

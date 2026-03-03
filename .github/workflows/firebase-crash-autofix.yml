@@ -11,8 +11,8 @@
 #   • base branch         → always "main"
 #
 # Required secrets:
-#   ANTHROPIC_API_KEY            — Claude API key
-#   GOOGLE_SERVICE_ACCOUNT_JSON  — GCP service account with Firebase Crashlytics Viewer role
+#   ANTHROPIC_API_KEY
+#   GOOGLE_SERVICE_ACCOUNT_JSON
 #   GITHUB_TOKEN                 — provided automatically by GitHub Actions
 #
 # Firebase webhook relay payload (repository_dispatch):
