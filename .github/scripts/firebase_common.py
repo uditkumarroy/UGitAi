@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 from pathlib import Path
 import urllib.parse
 import urllib.request
@@ -15,17 +14,28 @@ import google.auth
 import google.auth.transport.requests
 from google.oauth2 import service_account
 
-SERVICE_ACCOUNT_GLOB = "test-firebase-b96cd-*.json"
+SERVICE_ACCOUNT_PATTERNS = (
+    "ugitai-*.json",
+    "test-firebase-b96cd-*.json",
+)
 
 
 def _resolve_service_account_file() -> Path:
-    candidates = sorted(
-        Path(".").glob(SERVICE_ACCOUNT_GLOB),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    explicit = Path(".github/service-account-file.txt")
+    if explicit.exists():
+        target = Path(explicit.read_text().strip())
+        if target.exists():
+            return target
+
+    candidates: list[Path] = []
+    for pattern in SERVICE_ACCOUNT_PATTERNS:
+        candidates.extend(Path(".").glob(pattern))
+    candidates = sorted(set(candidates), key=lambda p: p.stat().st_mtime, reverse=True)
     if not candidates:
-        raise RuntimeError(f"Missing service account file matching: {SERVICE_ACCOUNT_GLOB}")
+        raise RuntimeError(
+            "Missing service account file. Expected one of: "
+            + ", ".join(SERVICE_ACCOUNT_PATTERNS)
+        )
     return candidates[0]
 
 
@@ -80,27 +90,29 @@ def get_service_account_info() -> dict[str, str]:
 
 
 def get_access_token() -> str:
+    adc_error: Exception | None = None
     # Preferred in GitHub Actions: keyless auth via Workload Identity Federation.
     try:
         creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         creds.refresh(google.auth.transport.requests.Request())
         if creds.token:
             return creds.token
-    except Exception as adc_error:
-        # If ADC is unavailable, fall back to local JSON key file for local-only runs.
-        if os.getenv("GITHUB_ACTIONS") == "true":
-            raise RuntimeError(
-                "Google ADC auth failed in GitHub Actions. Configure "
-                "google-github-actions/auth with workload identity provider and service account. "
-                f"Original error: {adc_error}"
-            ) from adc_error
+    except Exception as exc:
+        adc_error = exc
 
-    creds = service_account.Credentials.from_service_account_info(
-        get_service_account_info(),
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
-    creds.refresh(google.auth.transport.requests.Request())
-    return creds.token
+    try:
+        creds = service_account.Credentials.from_service_account_info(
+            get_service_account_info(),
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        creds.refresh(google.auth.transport.requests.Request())
+        return creds.token
+    except Exception as file_error:
+        if adc_error is not None:
+            raise RuntimeError(
+                f"Google auth failed via ADC ({adc_error}) and service-account file ({file_error})."
+            ) from file_error
+        raise
 
 
 def load_project_and_app_id(package_name: str = "com.ugitai") -> tuple[str, str]:
