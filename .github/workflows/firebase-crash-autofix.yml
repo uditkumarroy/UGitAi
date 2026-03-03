@@ -1,24 +1,21 @@
 # Firebase Crash Auto-Fix Pipeline
 #
 # Triggers:
-#   1. Manual (workflow_dispatch): paste crash details directly in GitHub UI
-#   2. Webhook (repository_dispatch): send a POST to the GitHub API from a
-#      Firebase Alert webhook relay (Cloud Function / Zapier / etc.)
+#   1. Manual  (workflow_dispatch)  — enter only the Crashlytics Issue ID
+#   2. Webhook (repository_dispatch) — Firebase Alert relay sends only issue_id
+#
+# Everything else (title, stacktrace, base branch) is resolved automatically:
+#   • title + stacktrace  → fetched from Firebase Crashlytics REST API
+#   • base branch         → always "main"
 #
 # Required secrets:
-#   ANTHROPIC_API_KEY  — Claude API key
-#   GITHUB_TOKEN       — automatically provided by GitHub Actions
+#   ANTHROPIC_API_KEY            — Claude API key
+#   GOOGLE_SERVICE_ACCOUNT_JSON  — GCP service account with Firebase Crashlytics Viewer role
+#   GITHUB_TOKEN                 — provided automatically by GitHub Actions
 #
-# Firebase webhook relay payload shape (repository_dispatch):
-#   {
-#     "event_type": "firebase-crash-detected",
-#     "client_payload": {
-#       "issue_id":    "abc123",
-#       "title":       "NullPointerException in MainActivity.kt",
-#       "stacktrace":  "Fatal Exception: java.lang.NullPointerException\n  at ...",
-#       "base_branch": "main"          ← optional, defaults to main
-#     }
-#   }
+# Firebase webhook relay payload (repository_dispatch):
+#   POST https://api.github.com/repos/uditkumarroy/UGitAi/dispatches
+#   { "event_type": "firebase-crash-detected", "client_payload": { "issue_id": "abc123" } }
 
 name: Firebase Crash Auto-Fix
 
@@ -29,19 +26,6 @@ on:
         description: "Firebase Crashlytics Issue ID"
         required: true
         type: string
-      crash_title:
-        description: "Crash title / exception class"
-        required: true
-        type: string
-      crash_stacktrace:
-        description: "Full crash stacktrace"
-        required: true
-        type: string
-      base_branch:
-        description: "Base branch to branch from and target for the PR"
-        required: false
-        default: "main"
-        type: string
 
   repository_dispatch:
     types: [firebase-crash-detected]
@@ -50,46 +34,32 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  BASE_BRANCH: main
+
 jobs:
   auto-fix:
     runs-on: ubuntu-latest
 
     steps:
-      # ── 1. Checkout base branch ───────────────────────────────────────────
+      # ── 1. Checkout main ──────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: >-
-            ${{
-              github.event_name == 'repository_dispatch'
-                && (github.event.client_payload.base_branch || 'main')
-                || (inputs.base_branch || 'main')
-            }}
+          ref: main
 
-      # ── 2. Normalise crash inputs ─────────────────────────────────────────
-      - name: Resolve crash inputs
+      # ── 2. Resolve Issue ID ───────────────────────────────────────────────
+      - name: Resolve Issue ID
         id: crash
-        env:
-          # Use env vars for potentially multiline / special-char content
-          ST_DISPATCH: ${{ github.event.client_payload.stacktrace }}
-          ST_INPUT: ${{ inputs.crash_stacktrace }}
         run: |
           if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
             ISSUE_ID="${{ github.event.client_payload.issue_id }}"
-            TITLE="${{ github.event.client_payload.title }}"
-            BASE="${{ github.event.client_payload.base_branch }}"
-            printf '%s' "$ST_DISPATCH" > crash_stacktrace.txt
           else
             ISSUE_ID="${{ inputs.crash_issue_id }}"
-            TITLE="${{ inputs.crash_title }}"
-            BASE="${{ inputs.base_branch }}"
-            printf '%s' "$ST_INPUT" > crash_stacktrace.txt
           fi
 
-          echo "issue_id=$ISSUE_ID"               >> "$GITHUB_OUTPUT"
-          echo "title=$TITLE"                      >> "$GITHUB_OUTPUT"
-          echo "base_branch=${BASE:-main}"          >> "$GITHUB_OUTPUT"
+          echo "issue_id=$ISSUE_ID" >> "$GITHUB_OUTPUT"
 
           SAFE_ID=$(echo "$ISSUE_ID" | tr -dc 'a-zA-Z0-9-' | head -c 40)
           echo "branch=fix/firebase-crash-${SAFE_ID}-$(date +%s)" >> "$GITHUB_OUTPUT"
@@ -98,73 +68,83 @@ jobs:
       - name: Create fix branch
         run: git checkout -b "${{ steps.crash.outputs.branch }}"
 
-      # ── 4. Python + Claude ────────────────────────────────────────────────
+      # ── 4. Set up Python ──────────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install anthropic
+        run: pip install anthropic google-auth requests
 
-      - name: Analyze crash and apply fix with Claude
+      # ── 5. Fetch crash details from Firebase Crashlytics ──────────────────
+      - name: Fetch crash details from Firebase
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
+        run: python .github/scripts/fetch_crash.py
+
+      # ── 6. Analyze crash and apply fix with Claude ────────────────────────
+      - name: Analyze and fix with Claude
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
-          CRASH_TITLE: ${{ steps.crash.outputs.title }}
         run: python .github/scripts/fix_crash.py
 
-      # ── 5. Verify the fix compiles ────────────────────────────────────────
-      - name: Verify build compiles
+      # ── 7. Verify build compiles ──────────────────────────────────────────
+      - name: Verify build
         id: build
         continue-on-error: true
         run: |
           chmod +x gradlew
           ./gradlew :app:compileDebugKotlin --no-daemon 2>&1 | tail -10
 
-      # ── 6. Commit ─────────────────────────────────────────────────────────
+      # ── 8. Commit ─────────────────────────────────────────────────────────
       - name: Commit fix
+        id: commit
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
 
           if git diff --staged --quiet; then
-            echo "NO_CHANGES=true" >> "$GITHUB_ENV"
+            echo "no_changes=true" >> "$GITHUB_OUTPUT"
             echo "⚠️  Claude found no code changes to apply."
           else
+            TITLE=$(cat crash_title.txt 2>/dev/null || echo "${{ steps.crash.outputs.issue_id }}")
             COMMIT_MSG=$(printf 'fix: resolve Firebase crash %s\n\n%s\n\nAuto-analyzed and fixed by Claude AI.\nFirebase Issue ID: %s' \
               "${{ steps.crash.outputs.issue_id }}" \
-              "${{ steps.crash.outputs.title }}" \
+              "$TITLE" \
               "${{ steps.crash.outputs.issue_id }}")
             git commit -m "$COMMIT_MSG"
           fi
 
-      # ── 7. Push branch ────────────────────────────────────────────────────
+      # ── 9. Push branch ────────────────────────────────────────────────────
       - name: Push branch
-        if: env.NO_CHANGES != 'true'
+        if: steps.commit.outputs.no_changes != 'true'
         run: git push origin "${{ steps.crash.outputs.branch }}"
 
-      # ── 8. Open Pull Request ──────────────────────────────────────────────
+      # ── 10. Open Pull Request ─────────────────────────────────────────────
       - name: Create Pull Request
-        if: env.NO_CHANGES != 'true'
+        if: steps.commit.outputs.no_changes != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TITLE=$(cat crash_title.txt 2>/dev/null || echo "${{ steps.crash.outputs.issue_id }}")
+          SUMMARY=$(cat fix_summary.md 2>/dev/null || echo "_No summary generated._")
+          STACKTRACE=$(cat crash_stacktrace.txt 2>/dev/null || echo "_Stacktrace unavailable._")
+
           BUILD_BADGE="✅ Compiles successfully"
           if [ "${{ steps.build.outcome }}" != "success" ]; then
             BUILD_BADGE="⚠️ Build check failed — manual review required before merging"
           fi
 
-          SUMMARY=$(cat fix_summary.md 2>/dev/null || echo "_No summary generated._")
-          STACKTRACE=$(cat crash_stacktrace.txt)
-
           {
             echo "## Firebase Crash Auto-Fix"
             echo ""
             echo "**Firebase Issue ID:** \`${{ steps.crash.outputs.issue_id }}\`"
-            echo "**Crash:** ${{ steps.crash.outputs.title }}"
-            echo "**Base branch:** \`${{ steps.crash.outputs.base_branch }}\`"
+            echo "**Crash:** ${TITLE}"
+            echo "**Base branch:** \`main\`"
             echo "**Build:** ${BUILD_BADGE}"
             echo ""
             echo "---"
@@ -185,7 +165,7 @@ jobs:
           } > pr_body.md
 
           gh pr create \
-            --title "fix: Firebase crash — ${{ steps.crash.outputs.title }}" \
-            --base "${{ steps.crash.outputs.base_branch }}" \
+            --title "fix: Firebase crash — ${TITLE}" \
+            --base main \
             --head "${{ steps.crash.outputs.branch }}" \
             --body-file pr_body.md

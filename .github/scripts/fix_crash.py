@@ -9,9 +9,11 @@ import os
 import subprocess
 import anthropic
 
-# ── Crash details ──────────────────────────────────────────────────────────
+# ── Crash details (populated by fetch_crash.py) ────────────────────────────
 CRASH_ISSUE_ID = os.environ["CRASH_ISSUE_ID"]
-CRASH_TITLE = os.environ["CRASH_TITLE"]
+
+with open("crash_title.txt") as f:
+    CRASH_TITLE = f.read().strip()
 
 with open("crash_stacktrace.txt") as f:
     CRASH_STACKTRACE = f.read().strip()
