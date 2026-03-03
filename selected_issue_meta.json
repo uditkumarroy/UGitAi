@@ -1,4 +1,4 @@
 {
   "no_issue": true,
-  "reason": "selector_failed: Hardcoded service account is not configured: private_key_id still contains placeholder text."
+  "reason": "selector_failed: Hardcoded service account is not configured: private_key still contains placeholder text."
 }
