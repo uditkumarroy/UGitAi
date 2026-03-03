@@ -22,6 +22,7 @@ permissions:
 
 env:
   BASE_BRANCH: main
+  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
 
 jobs:
   auto-fix:
@@ -73,18 +74,8 @@ jobs:
       - name: Install Python dependencies
         run: pip install anthropic google-auth requests
 
-      - name: Validate Google OIDC vars
-        run: |
-          if [ -z "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
-            echo "Missing repo variable: GCP_WORKLOAD_IDENTITY_PROVIDER"
-            exit 1
-          fi
-          if [ -z "${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" ]; then
-            echo "Missing repo variable: GCP_SERVICE_ACCOUNT_EMAIL"
-            exit 1
-          fi
-
       - name: Authenticate to Google Cloud (OIDC)
+        if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT_EMAIL != '' }}
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}

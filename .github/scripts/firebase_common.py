@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import urllib.parse
 import urllib.request
 from typing import Any
 
 import google.auth
 import google.auth.transport.requests
+from google.oauth2 import service_account
 
 
 def parse_rfc3339(value: str | None) -> dt.datetime | None:
@@ -25,6 +27,25 @@ def parse_rfc3339(value: str | None) -> dt.datetime | None:
 
 
 def get_access_token() -> str:
+    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if sa_json:
+        try:
+            info = json.loads(sa_json)
+            private_key = str(info.get("private_key", ""))
+            if "\\n" in private_key and "\n" not in private_key:
+                info["private_key"] = private_key.replace("\\n", "\n")
+            creds = service_account.Credentials.from_service_account_info(
+                info,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+            creds.refresh(google.auth.transport.requests.Request())
+            if creds.token:
+                return creds.token
+        except Exception as exc:
+            raise RuntimeError(
+                "GOOGLE_SERVICE_ACCOUNT_JSON is set but invalid or unusable."
+            ) from exc
+
     try:
         creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
         creds.refresh(google.auth.transport.requests.Request())
