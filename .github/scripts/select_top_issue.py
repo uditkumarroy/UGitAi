@@ -62,6 +62,13 @@ def get_token(service_account_json: str) -> str:
     return creds.token
 
 
+def load_service_account_json() -> str:
+    env_value = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if env_value:
+        return env_value
+    raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON.")
+
+
 def api_get(base_url: str, path: str, token: str, params: dict[str, str] | None = None) -> dict[str, Any]:
     query = ""
     if params:
@@ -144,7 +151,7 @@ def main() -> None:
     window_start = parse_rfc3339(start_iso) or (window_end - dt.timedelta(hours=24))
     max_issues = int(os.getenv("MAX_ISSUES", "100"))
 
-    service_account_json = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+    service_account_json = load_service_account_json()
     token = get_token(service_account_json)
 
     base_url = f"https://firebasecrashlytics.googleapis.com/v1beta1/projects/{project_id}/apps/{app_id}"
