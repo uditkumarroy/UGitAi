@@ -6,7 +6,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,21 +61,31 @@ def get_access_token() -> str:
     raise RuntimeError("Google ADC auth returned no token.")
 
 
-def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[str, list[str]]:
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def load_project_and_app_candidates(
+    package_name: str = "com.ugitai",
+) -> tuple[list[str], list[str]]:
     sa_project_id = ""
+    sa_project_number = ""
     sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
     if sa_json:
         try:
             sa_info = json.loads(sa_json)
             sa_project_id = str(sa_info.get("project_id", "")).strip()
+            sa_project_number = str(sa_info.get("project_number", "")).strip()
         except Exception:
             # Token creation will fail later with a clearer error if this JSON is bad.
             sa_project_id = ""
+            sa_project_number = ""
 
     with open("app/google-services.json") as f:
         gs = json.load(f)
 
     default_project_id = gs["project_info"]["project_id"]
+    default_project_number = str(gs["project_info"].get("project_number", "")).strip()
     mobilesdk_app_id = next(
         c["client_info"]["mobilesdk_app_id"]
         for c in gs["client"]
@@ -91,22 +100,24 @@ def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[s
             seen.add(c)
             ordered.append(c)
 
-    override_project = os.getenv("FIREBASE_PROJECT_ID", "").strip()
-    # Prefer service-account project because auth principal usually belongs there.
-    project_id = sa_project_id or default_project_id
+    project_candidates: list[str] = []
+    project_candidates.extend(_split_csv(os.getenv("FIREBASE_PROJECT_ID", "").strip()))
+    project_candidates.extend(_split_csv(os.getenv("FIREBASE_PROJECT_NUMBER", "").strip()))
+    project_candidates.extend([sa_project_id, sa_project_number, default_project_id, default_project_number])
 
-    if override_project and sa_project_id and override_project != sa_project_id:
-        print(
-            "Warning: FIREBASE_PROJECT_ID differs from GOOGLE_SERVICE_ACCOUNT_JSON project_id. "
-            f"Using service-account project_id='{sa_project_id}'.",
-            file=sys.stderr,
-        )
-    elif override_project:
-        project_id = override_project
+    dedup_projects = []
+    seen_projects = set()
+    for project in project_candidates:
+        if project and project not in seen_projects:
+            seen_projects.add(project)
+            dedup_projects.append(project)
+
+    if not dedup_projects:
+        raise RuntimeError("Could not resolve Firebase project id/number from env or google-services.json.")
 
     override_app_resources = os.getenv("CRASHLYTICS_APP_RESOURCE", "").strip()
     if override_app_resources:
-        override_candidates = [x.strip() for x in override_app_resources.split(",") if x.strip()]
+        override_candidates = _split_csv(override_app_resources)
         if not override_candidates:
             raise RuntimeError("CRASHLYTICS_APP_RESOURCE override is empty after parsing.")
         merged = []
@@ -117,37 +128,42 @@ def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[s
                 merged.append(c)
         ordered = merged
 
-    return project_id, ordered
+    return dedup_projects, ordered
 
 
 def build_crashlytics_base_url(project_id: str, app_resource: str) -> str:
-    app_part = urllib.parse.quote(app_resource, safe=":")
+    app_part = urllib.parse.quote(app_resource, safe="")
     return f"https://firebasecrashlytics.googleapis.com/v1beta1/projects/{project_id}/apps/{app_part}"
 
 
 def resolve_crashlytics_base_url(
-    project_id: str,
+    project_candidates: list[str],
     app_candidates: list[str],
     token: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     last_error: Exception | None = None
-    for app_resource in app_candidates:
-        base_url = build_crashlytics_base_url(project_id, app_resource)
-        try:
-            api_get(base_url, "/issues", token, params={"pageSize": "1"})
-            return base_url, app_resource
-        except urllib.error.HTTPError as exc:
-            last_error = exc
-            if exc.code in (400, 404):
+    attempted: list[str] = []
+    for project_id in project_candidates:
+        for app_resource in app_candidates:
+            base_url = build_crashlytics_base_url(project_id, app_resource)
+            attempted.append(f"{project_id}|{app_resource}")
+            try:
+                api_get(base_url, "/issues", token, params={"pageSize": "1"})
+                return base_url, project_id, app_resource
+            except urllib.error.HTTPError as exc:
+                last_error = exc
+                if exc.code in (400, 404):
+                    continue
+                raise
+            except Exception as exc:
+                last_error = exc
                 continue
-            raise
-        except Exception as exc:
-            last_error = exc
-            continue
 
     detail = f" Last error: {last_error}" if last_error else ""
+    attempted_msg = f" Attempted {len(attempted)} project/app combinations: {attempted}."
     raise RuntimeError(
-        f"Could not resolve Crashlytics app resource for project '{project_id}' from candidates {app_candidates}.{detail}"
+        f"Could not resolve Crashlytics app resource from project candidates {project_candidates} "
+        f"and app candidates {app_candidates}.{attempted_msg}{detail}"
     )
 
 

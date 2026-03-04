@@ -38,7 +38,7 @@ def _write_side_files(issue_id: str, meta: dict[str, Any]) -> None:
 
 def main() -> None:
     package_name = os.getenv("APP_PACKAGE_NAME", "com.ugitai")
-    project_id, app_candidates = load_project_and_app_candidates(package_name)
+    project_candidates, app_candidates = load_project_and_app_candidates(package_name)
 
     end = parse_rfc3339(os.getenv("WINDOW_END_ISO")) or dt.datetime.now(dt.timezone.utc)
     start = parse_rfc3339(os.getenv("WINDOW_START_ISO")) or (end - dt.timedelta(hours=24))
@@ -46,13 +46,17 @@ def main() -> None:
 
     token = get_access_token()
     try:
-        base_url, resolved_app = resolve_crashlytics_base_url(project_id, app_candidates, token)
-        print(f"Using Crashlytics app resource: {resolved_app}")
+        base_url, resolved_project, resolved_app = resolve_crashlytics_base_url(
+            project_candidates,
+            app_candidates,
+            token,
+        )
+        print(f"Using Crashlytics project/app: {resolved_project} / {resolved_app}")
     except Exception as exc:
         meta = {
             "no_issue": True,
             "reason": f"Could not resolve Crashlytics app: {exc}",
-            "project_id": project_id,
+            "project_candidates": project_candidates,
             "app_candidates": app_candidates,
             "window_start": start.isoformat(),
             "window_end": end.isoformat(),

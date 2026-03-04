@@ -40,11 +40,15 @@ def main() -> None:
         raise RuntimeError("Missing CRASH_ISSUE_ID.")
 
     package_name = os.getenv("APP_PACKAGE_NAME", "com.ugitai")
-    project_id, app_candidates = load_project_and_app_candidates(package_name)
+    project_candidates, app_candidates = load_project_and_app_candidates(package_name)
     token = get_access_token()
-    base_url, resolved_app = resolve_crashlytics_base_url(project_id, app_candidates, token)
+    base_url, resolved_project, resolved_app = resolve_crashlytics_base_url(
+        project_candidates,
+        app_candidates,
+        token,
+    )
 
-    print(f"Fetching crash details: project={project_id} app={resolved_app} issue={issue_id}")
+    print(f"Fetching crash details: project={resolved_project} app={resolved_app} issue={issue_id}")
 
     issue = api_get(base_url, f"/issues/{issue_id}", token)
     title = issue.get("title", "Unknown crash")
