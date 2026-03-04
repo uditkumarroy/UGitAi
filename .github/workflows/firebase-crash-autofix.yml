@@ -132,6 +132,8 @@ jobs:
         if: steps.crash.outputs.no_issue != 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          ANTHROPIC_MODEL_FALLBACKS: ${{ vars.ANTHROPIC_MODEL_FALLBACKS }}
           CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
           ALLOW_CLAUDE_FAILURE: "true"
         run: python .github/scripts/fix_with_claude.py
