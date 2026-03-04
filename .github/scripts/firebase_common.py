@@ -13,6 +13,8 @@ from typing import Any
 
 import google.auth
 import google.auth.transport.requests
+from google.api_core.exceptions import GoogleAPIError, NotFound
+from google.cloud import bigquery
 from google.oauth2 import service_account
 
 
@@ -63,6 +65,36 @@ def get_access_token() -> str:
 
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def get_google_credentials():
+    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if sa_json:
+        try:
+            info = json.loads(sa_json)
+            private_key = str(info.get("private_key", ""))
+            if "\\n" in private_key and "\n" not in private_key:
+                info["private_key"] = private_key.replace("\\n", "\n")
+            creds = service_account.Credentials.from_service_account_info(
+                info,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+            return creds, str(info.get("project_id", "")).strip()
+        except Exception as exc:
+            raise RuntimeError(
+                "GOOGLE_SERVICE_ACCOUNT_JSON is set but invalid or unusable."
+            ) from exc
+
+    creds, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    return creds, str(project or "").strip()
+
+
+def get_bigquery_client(project_id: str | None = None) -> bigquery.Client:
+    creds, default_project = get_google_credentials()
+    effective_project = project_id or default_project
+    if not effective_project:
+        raise RuntimeError("Unable to determine Google Cloud project for BigQuery client.")
+    return bigquery.Client(project=effective_project, credentials=creds)
 
 
 def load_project_and_app_candidates(
@@ -129,6 +161,70 @@ def load_project_and_app_candidates(
         ordered = merged
 
     return dedup_projects, ordered
+
+
+def resolve_crashlytics_bigquery_source(
+    package_name: str = "com.ugitai",
+    platform: str = "ANDROID",
+) -> tuple[bigquery.Client, str, str, str, str | None]:
+    project_candidates, _ = load_project_and_app_candidates(package_name)
+    dataset = os.getenv("CRASHLYTICS_BQ_DATASET", "firebase_crashlytics").strip() or "firebase_crashlytics"
+    table_override = os.getenv("CRASHLYTICS_BQ_TABLE", "").strip()
+    realtime_override = os.getenv("CRASHLYTICS_BQ_REALTIME_TABLE", "").strip()
+
+    sanitized_package = package_name.replace(".", "_")
+    batch_preferences = [
+        table_override,
+        f"{sanitized_package}_{platform}",
+        f"{package_name}_{platform}",
+    ]
+    realtime_preferences = [
+        realtime_override,
+        f"{sanitized_package}_{platform}_REALTIME",
+        f"{package_name}_{platform}_REALTIME",
+    ]
+
+    last_error: Exception | None = None
+    attempted: list[str] = []
+
+    for project in project_candidates:
+        attempted.append(project)
+        client = get_bigquery_client(project)
+        dataset_ref = f"{project}.{dataset}"
+        try:
+            table_ids = sorted([table.table_id for table in client.list_tables(dataset_ref)])
+        except NotFound as exc:
+            last_error = exc
+            continue
+        except GoogleAPIError as exc:
+            last_error = exc
+            continue
+
+        table_set = set(table_ids)
+
+        batch_table = next((t for t in batch_preferences if t and t in table_set), None)
+        if not batch_table:
+            # Fallback: any Android batch table for the package, then any Android batch table.
+            batch_like = [
+                t for t in table_ids if t.endswith(f"_{platform}") and not t.endswith(f"_{platform}_REALTIME")
+            ]
+            pkg_like = [t for t in batch_like if sanitized_package in t or package_name in t]
+            batch_table = (pkg_like or batch_like or [None])[0]
+
+        realtime_table = next((t for t in realtime_preferences if t and t in table_set), None)
+        if not realtime_table:
+            realtime_like = [t for t in table_ids if t.endswith(f"_{platform}_REALTIME")]
+            pkg_realtime_like = [t for t in realtime_like if sanitized_package in t or package_name in t]
+            realtime_table = (pkg_realtime_like or realtime_like or [None])[0]
+
+        if batch_table or realtime_table:
+            return client, project, dataset, batch_table or "", realtime_table
+
+    detail = f" Last error: {last_error}" if last_error else ""
+    raise RuntimeError(
+        "Could not resolve Crashlytics BigQuery export source. "
+        f"Tried projects {attempted} with dataset '{dataset}'.{detail}"
+    )
 
 
 def build_crashlytics_base_url(project_id: str, app_resource: str) -> str:
