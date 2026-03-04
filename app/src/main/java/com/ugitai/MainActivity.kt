@@ -41,6 +41,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        FirebaseCrashlytics.getInstance().log("Manual test crash from home screen")
+        throw RuntimeException("Test crash from home screen")
     }
 
     private fun testFirebaseConnection(): String {
@@ -51,8 +53,6 @@ class MainActivity : ComponentActivity() {
             crashlytics.setCustomKey("connection_test", true)
             Log.i("Firebase", "Connected to project: ${app.options.projectId}")
             "Firebase connected\nProject: ${app.options.projectId}"
-            FirebaseCrashlytics.getInstance().log("Manual test crash from home screen")
-            throw RuntimeException("Test crash from home screen")
         } catch (e: Exception) {
             Log.e("Firebase", "Connection failed: ${e.message}")
             "Firebase connection failed:\n${e.message}"
