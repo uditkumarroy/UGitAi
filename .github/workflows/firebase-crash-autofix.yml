@@ -169,7 +169,7 @@ jobs:
       - name: Create Pull Request
         if: steps.crash.outputs.no_issue != 'true' && steps.commit.outputs.no_changes != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PR_CREATOR_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           TITLE=$(cat crash_title.txt 2>/dev/null || echo "${{ steps.crash.outputs.issue_id }}")
           SUMMARY=$(cat fix_summary.md 2>/dev/null || echo "_No summary generated._")
@@ -199,8 +199,17 @@ jobs:
             echo "Firebase Issue ID: ${{ steps.crash.outputs.issue_id }}"
           } > pr_body.md
 
+          set +e
           gh pr create \
             --title "fix: Firebase crash - ${TITLE}" \
             --base "${{ env.BASE_BRANCH }}" \
             --head "${{ steps.crash.outputs.branch }}" \
             --body-file pr_body.md
+          rc=$?
+          set -e
+
+          if [ $rc -ne 0 ]; then
+            echo "PR creation failed. Common fix: enable 'Allow GitHub Actions to create and approve pull requests' in repo Settings > Actions > General."
+            echo "Or add a PAT secret named PR_CREATOR_TOKEN with repo scope."
+            exit 0
+          fi
