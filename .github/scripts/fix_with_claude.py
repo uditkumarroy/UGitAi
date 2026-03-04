@@ -118,6 +118,37 @@ def _is_truthy(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _split_csv(value: str) -> list[str]:
+    return [x.strip() for x in value.split(",") if x.strip()]
+
+
+def _model_candidates() -> list[str]:
+    primary = os.getenv("ANTHROPIC_MODEL", "").strip()
+    fallback_env = _split_csv(os.getenv("ANTHROPIC_MODEL_FALLBACKS", ""))
+    defaults = [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-haiku-4-5-20251001",
+    ]
+
+    ordered: list[str] = []
+    seen = set()
+    for model in [primary] + fallback_env + defaults:
+        if model and model not in seen:
+            seen.add(model)
+            ordered.append(model)
+    return ordered
+
+
+def _is_model_not_found_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "not_found_error" in msg
+        or ("model" in msg and "not found" in msg)
+        or ("model:" in msg and "404" in msg)
+    )
+
+
 def main() -> None:
     api_key = require_env("ANTHROPIC_API_KEY")
     issue_id = require_env("CRASH_ISSUE_ID")
@@ -190,15 +221,43 @@ Rules:
     messages: list[dict] = [{"role": "user", "content": prompt}]
     changed_files: list[str] = []
     summary_written = False
+    selected_model = ""
+    model_candidates = _model_candidates()
+    print(f"Claude model candidates: {', '.join(model_candidates)}")
 
     for _ in range(8):
         try:
-            response = client.messages.create(
-                model=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
-                max_tokens=8096,
-                tools=tools,
-                messages=messages,
-            )
+            response = None
+            last_exc: Exception | None = None
+
+            # Keep using the first successful model in subsequent turns.
+            if selected_model:
+                active_candidates = [selected_model]
+            else:
+                active_candidates = model_candidates
+
+            for model in active_candidates:
+                try:
+                    response = client.messages.create(
+                        model=model,
+                        max_tokens=8096,
+                        tools=tools,
+                        messages=messages,
+                    )
+                    selected_model = model
+                    print(f"Using Claude model: {selected_model}")
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if _is_model_not_found_error(exc) and not selected_model:
+                        print(f"Model unavailable: {model}", file=sys.stderr)
+                        continue
+                    raise
+
+            if response is None:
+                if last_exc is not None:
+                    raise last_exc
+                raise RuntimeError("Claude response was empty.")
         except Exception as exc:
             reason = f"Claude API call failed: {exc}"
             print(reason, file=sys.stderr)
