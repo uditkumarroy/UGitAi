@@ -6,6 +6,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -62,18 +63,20 @@ def get_access_token() -> str:
 
 
 def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[str, list[str]]:
-    override_project = os.getenv("FIREBASE_PROJECT_ID", "").strip()
-    override_app_resources = os.getenv("CRASHLYTICS_APP_RESOURCE", "").strip()
-    if override_project and override_app_resources:
-        candidates = [x.strip() for x in override_app_resources.split(",") if x.strip()]
-        if not candidates:
-            raise RuntimeError("CRASHLYTICS_APP_RESOURCE override is empty after parsing.")
-        return override_project, candidates
+    sa_project_id = ""
+    sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if sa_json:
+        try:
+            sa_info = json.loads(sa_json)
+            sa_project_id = str(sa_info.get("project_id", "")).strip()
+        except Exception:
+            # Token creation will fail later with a clearer error if this JSON is bad.
+            sa_project_id = ""
 
     with open("app/google-services.json") as f:
         gs = json.load(f)
 
-    project_id = gs["project_info"]["project_id"]
+    default_project_id = gs["project_info"]["project_id"]
     mobilesdk_app_id = next(
         c["client_info"]["mobilesdk_app_id"]
         for c in gs["client"]
@@ -87,6 +90,33 @@ def load_project_and_app_candidates(package_name: str = "com.ugitai") -> tuple[s
         if c and c not in seen:
             seen.add(c)
             ordered.append(c)
+
+    override_project = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    # Prefer service-account project because auth principal usually belongs there.
+    project_id = sa_project_id or default_project_id
+
+    if override_project and sa_project_id and override_project != sa_project_id:
+        print(
+            "Warning: FIREBASE_PROJECT_ID differs from GOOGLE_SERVICE_ACCOUNT_JSON project_id. "
+            f"Using service-account project_id='{sa_project_id}'.",
+            file=sys.stderr,
+        )
+    elif override_project:
+        project_id = override_project
+
+    override_app_resources = os.getenv("CRASHLYTICS_APP_RESOURCE", "").strip()
+    if override_app_resources:
+        override_candidates = [x.strip() for x in override_app_resources.split(",") if x.strip()]
+        if not override_candidates:
+            raise RuntimeError("CRASHLYTICS_APP_RESOURCE override is empty after parsing.")
+        merged = []
+        seen = set()
+        for c in override_candidates + ordered:
+            if c and c not in seen:
+                seen.add(c)
+                merged.append(c)
+        ordered = merged
+
     return project_id, ordered
 
 
