@@ -132,10 +132,16 @@ def load_project_and_app_candidates(
             seen.add(c)
             ordered.append(c)
 
+    override_project_ids = _split_csv(os.getenv("FIREBASE_PROJECT_ID", "").strip())
+    override_project_numbers = _split_csv(os.getenv("FIREBASE_PROJECT_NUMBER", "").strip())
+
     project_candidates: list[str] = []
-    project_candidates.extend(_split_csv(os.getenv("FIREBASE_PROJECT_ID", "").strip()))
-    project_candidates.extend(_split_csv(os.getenv("FIREBASE_PROJECT_NUMBER", "").strip()))
-    project_candidates.extend([sa_project_id, sa_project_number, default_project_id, default_project_number])
+    if override_project_ids or override_project_numbers:
+        # When explicit override(s) are configured, use only those.
+        project_candidates.extend(override_project_ids)
+        project_candidates.extend(override_project_numbers)
+    else:
+        project_candidates.extend([sa_project_id, sa_project_number, default_project_id, default_project_number])
 
     dedup_projects = []
     seen_projects = set()
