@@ -142,4 +142,4 @@ if __name__ == "__main__":
             f.write("")
         with open("selected_issue_meta.json", "w") as f:
             json.dump({"no_issue": True, "reason": f"selector_failed: {exc}"}, f, indent=2)
-        sys.exit(1)
+        sys.exit(0)
