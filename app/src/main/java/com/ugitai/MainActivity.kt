@@ -41,8 +41,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        FirebaseCrashlytics.getInstance().log("Manual test crash from home screen")
-        throw RuntimeException("Test crash from home screen")
     }
 
     private fun testFirebaseConnection(): String {
