@@ -13,6 +13,13 @@ from google.cloud import bigquery
 from firebase_common import resolve_crashlytics_bigquery_source
 
 
+def _write_outputs(title: str, stacktrace: str) -> None:
+    with open("crash_title.txt", "w") as f:
+        f.write(title)
+    with open("crash_stacktrace.txt", "w") as f:
+        f.write(stacktrace)
+
+
 def _build_source_sql(project_id: str, dataset: str, batch_table: str, realtime_table: str | None) -> str:
     sources: list[str] = []
     if batch_table:
@@ -91,6 +98,17 @@ def main() -> None:
     if not issue_id:
         raise RuntimeError("Missing CRASH_ISSUE_ID.")
 
+    manual_title = os.getenv("MANUAL_CRASH_TITLE", "").strip()
+    manual_stacktrace = os.getenv("MANUAL_CRASH_STACKTRACE", "").strip()
+    if manual_title or manual_stacktrace:
+        title = manual_title or f"Crashlytics issue {issue_id}"
+        stacktrace = manual_stacktrace or "No stacktrace provided via workflow input."
+        _write_outputs(title, stacktrace)
+        print("Using manual crash details from workflow inputs.")
+        print(f"Title: {title}")
+        print(f"Stacktrace lines: {len(stacktrace.splitlines())}")
+        return
+
     package_name = os.getenv("APP_PACKAGE_NAME", "com.ugitai")
     client, project_id, dataset, batch_table, realtime_table = resolve_crashlytics_bigquery_source(
         package_name=package_name,
@@ -130,11 +148,7 @@ def main() -> None:
 
     stacktrace = _format_stacktrace(row_dict)
 
-    with open("crash_title.txt", "w") as f:
-        f.write(title)
-
-    with open("crash_stacktrace.txt", "w") as f:
-        f.write(stacktrace)
+    _write_outputs(title, stacktrace)
 
     # Keep small debug metadata for troubleshooting schema differences.
     with open("crash_event_meta.json", "w") as f:
@@ -160,10 +174,17 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
+        allow_missing = os.getenv("ALLOW_MISSING_CRASH_DETAILS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "y",
+            "on",
+        )
         print(f"❌ Failed to fetch crash details: {exc}", file=sys.stderr)
         issue_id = os.getenv("CRASH_ISSUE_ID", "unknown")
-        with open("crash_title.txt", "w") as f:
-            f.write(issue_id)
-        with open("crash_stacktrace.txt", "w") as f:
-            f.write(f"Could not fetch stacktrace: {exc}")
+        _write_outputs(issue_id, f"Could not fetch stacktrace: {exc}")
+        if allow_missing:
+            print("Continuing with fallback crash details because ALLOW_MISSING_CRASH_DETAILS=true.")
+            sys.exit(0)
         sys.exit(1)

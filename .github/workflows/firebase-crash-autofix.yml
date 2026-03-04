@@ -10,6 +10,14 @@ on:
         description: "Optional Crashlytics Issue ID override"
         required: false
         type: string
+      crash_title:
+        description: "Optional crash title override (used if BigQuery is unavailable)"
+        required: false
+        type: string
+      crash_stacktrace:
+        description: "Optional stacktrace override (used if BigQuery is unavailable)"
+        required: false
+        type: string
 
   repository_dispatch:
     types: [firebase-crash-detected]
@@ -93,7 +101,7 @@ jobs:
           elif [ -n "${{ inputs.crash_issue_id }}" ]; then
             ISSUE_ID="${{ inputs.crash_issue_id }}"
           else
-            python .github/scripts/select_top_issue.py
+            python .github/scripts/select_top_issue.py || true
             ISSUE_ID="$(cat selected_issue_id.txt 2>/dev/null || true)"
           fi
 
@@ -115,6 +123,9 @@ jobs:
         if: steps.crash.outputs.no_issue != 'true'
         env:
           CRASH_ISSUE_ID: ${{ steps.crash.outputs.issue_id }}
+          MANUAL_CRASH_TITLE: ${{ inputs.crash_title }}
+          MANUAL_CRASH_STACKTRACE: ${{ inputs.crash_stacktrace }}
+          ALLOW_MISSING_CRASH_DETAILS: "true"
         run: python .github/scripts/fetch_crash_details.py
 
       - name: Analyze and fix with Claude
