@@ -10,7 +10,8 @@
       "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\)\" && echo \"YAML valid\")",
       "Bash(pip3 install pyyaml -q && python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\); print\\('YAML valid'\\)\")",
       "Bash(git add .github/workflows/firebase-crash-autofix.yml && git commit -m \"fix: avoid YAML parse error in PR creation step\n\nReplace multiline --body string \\(which caused | to be parsed as YAML\nblock scalar\\) with writing pr_body.md and using --body-file instead.\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\")",
-      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\); print\\('YAML valid'\\)\")"
+      "Bash(python3 -c \"import yaml; yaml.safe_load\\(open\\('.github/workflows/firebase-crash-autofix.yml'\\)\\); print\\('YAML valid'\\)\")",
+      "Bash(git add .github/scripts/fix_with_claude.py && git commit -m \"fix: update Claude model IDs to current versions\n\nReplace deprecated model names with valid current IDs:\nclaude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\")"
     ]
   }
 }
