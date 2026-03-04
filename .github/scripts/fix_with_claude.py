@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import anthropic
@@ -102,6 +103,21 @@ def write_file(path: str, content: str) -> None:
     file_path.write_text(content)
 
 
+def write_fallback_summary(issue_id: str, reason: str) -> None:
+    content = (
+        f"**Issue ID:** {issue_id}\n\n"
+        "**Claude Analysis:** unavailable.\n\n"
+        f"**Reason:** {reason}\n\n"
+        "No automated code changes were applied in this run."
+    )
+    with open("fix_summary.md", "w") as f:
+        f.write(content)
+
+
+def _is_truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def main() -> None:
     api_key = require_env("ANTHROPIC_API_KEY")
     issue_id = require_env("CRASH_ISSUE_ID")
@@ -176,12 +192,20 @@ Rules:
     summary_written = False
 
     for _ in range(8):
-        response = client.messages.create(
-            model=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
-            max_tokens=8096,
-            tools=tools,
-            messages=messages,
-        )
+        try:
+            response = client.messages.create(
+                model=os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest"),
+                max_tokens=8096,
+                tools=tools,
+                messages=messages,
+            )
+        except Exception as exc:
+            reason = f"Claude API call failed: {exc}"
+            print(reason, file=sys.stderr)
+            write_fallback_summary(issue_id, reason)
+            if _is_truthy(os.getenv("ALLOW_CLAUDE_FAILURE", "true")):
+                return
+            raise
 
         tool_uses = [x for x in response.content if x.type == "tool_use"]
         if not tool_uses:
